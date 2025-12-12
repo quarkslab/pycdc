@@ -644,9 +644,15 @@ class ASTComprehension : public ASTNode {
 public:
     typedef std::list<PycRef<ASTIterBlock>> generator_t;
 
-    ASTComprehension(PycRef<ASTNode> result)
-        : ASTNode(NODE_COMPREHENSION), m_result(std::move(result)) { }
+    enum CompType
+    {
+        COMP_LIST, COMP_DICT
+    };
 
+    ASTComprehension(CompType comptype, PycRef<ASTNode> result)
+        : ASTNode(NODE_COMPREHENSION), m_comptype(comptype), m_result(std::move(result)) {}
+
+    CompType comptype() const { return m_comptype; }
     PycRef<ASTNode> result() const { return m_result; }
     generator_t generators() const { return m_generators; }
 
@@ -655,9 +661,29 @@ public:
     }
 
 private:
+    CompType m_comptype;
     PycRef<ASTNode> m_result;
     generator_t m_generators;
 
+};
+
+class ASTListComprehension : public ASTComprehension
+{
+public:
+    ASTListComprehension(PycRef<ASTNode> result)
+        : ASTComprehension(COMP_LIST, std::move(result)) {}
+};
+
+class ASTDictComprehension : public ASTComprehension
+{
+public:
+    ASTDictComprehension(PycRef<ASTNode> key, PycRef<ASTNode> value)
+        : ASTComprehension(COMP_DICT, std::move(value)), m_key(std::move(key)) {}
+
+    PycRef<ASTNode> key() const { return m_key; }
+
+private:
+    PycRef<ASTNode> m_key;
 };
 
 class ASTLoadBuildClass : public ASTNode {

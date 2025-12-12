@@ -916,7 +916,7 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                     if (mod->verCompare(3, 10) >= 0)
                         end *= sizeof(uint16_t); // // BPO-27129
                     end += pos;
-                    comprehension = strcmp(code->name()->value(), "<listcomp>") == 0;
+                    comprehension = strcmp(code->name()->value(), "<listcomp>") == 0 || strcmp(code->name()->value(), "<dictcomp>") == 0;
                 } else {
                     PycRef<ASTBlock> top = blocks.top();
                     end = top->end(); // block end position from SETUP_LOOP
@@ -1779,7 +1779,7 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                         auto& pparams = value.cast<ASTCall>()->pparams();
                         if (!pparams.empty()) {
                             PycRef<ASTNode> res = pparams.front();
-                            stack.push(new ASTComprehension(res));
+                            stack.push(new ASTListComprehension(res));
                         }
                     }
                 }
@@ -3056,7 +3056,13 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
         {
             PycRef<ASTComprehension> comp = node.cast<ASTComprehension>();
 
-            pyc_output << "[ ";
+            if (comp->comptype() == ASTComprehension::COMP_DICT) {
+                pyc_output << "{ ";
+                print_src(comp.cast<ASTDictComprehension>()->key(), mod, pyc_output);
+                pyc_output << ": ";
+            } else {
+                pyc_output << "[ ";
+            }
             print_src(comp->result(), mod, pyc_output);
 
             for (const auto& gen : comp->generators()) {
@@ -3069,7 +3075,14 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
                     print_src(gen->condition(), mod, pyc_output);
                 }
             }
-            pyc_output << " ]";
+            if (comp->comptype() == ASTComprehension::COMP_DICT)
+            {
+                pyc_output << "} ";
+            }
+            else
+            {
+                pyc_output << "] ";
+            }
         }
         break;
     case ASTNode::NODE_MAP:
