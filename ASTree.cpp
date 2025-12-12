@@ -1411,13 +1411,40 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                 PycRef<ASTNode> list = stack.top();
 
 
-                if (curblock->blktype() == ASTBlock::BLK_FOR
+                if ((curblock->blktype() == ASTBlock::BLK_FOR)
                         && curblock.cast<ASTIterBlock>()->isComprehension()) {
                     stack.pop();
-                    stack.push(new ASTComprehension(value));
+                    stack.push(new ASTListComprehension(value));
                 } else {
                     stack.push(new ASTSubscr(list, value)); /* Total hack */
                 }
+            }
+            break;
+        
+        case Pyc::MAP_ADD_A:
+            {
+                PycRef<ASTNode> value;
+                PycRef<ASTNode> key;
+                if (mod->verCompare(3, 8) >= 0) {
+                    value = stack.top();
+                    stack.pop();
+                    key = stack.top();
+                    stack.pop();
+                } else {
+                    key = stack.top();
+                    stack.pop();
+                    value = stack.top();
+                    stack.pop();
+                }
+                if (curblock->blktype() == ASTBlock::BLK_FOR 
+                        && curblock.cast<ASTIterBlock>()->isComprehension()){
+                    stack.pop();
+                    stack.push(new ASTDictComprehension(key, value));
+                } else {
+                    PycRef<ASTMap> map = stack.top().cast<ASTMap>();
+                    map->add(key, value);
+                }
+                
             }
             break;
         case Pyc::SET_UPDATE_A:
@@ -3060,8 +3087,10 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
                 pyc_output << "{ ";
                 print_src(comp.cast<ASTDictComprehension>()->key(), mod, pyc_output);
                 pyc_output << ": ";
-            } else {
+            } else if (comp->comptype() == ASTComprehension::COMP_LIST) {
                 pyc_output << "[ ";
+            } else {
+                fprintf(stderr, "Unsupported comprehension type %d in NODE_COMPREHENSION\n", comp->comptype());
             }
             print_src(comp->result(), mod, pyc_output);
 
@@ -3078,10 +3107,10 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
             if (comp->comptype() == ASTComprehension::COMP_DICT)
             {
                 pyc_output << "} ";
-            }
-            else
-            {
+            } else if (comp->comptype() == ASTComprehension::COMP_LIST){
                 pyc_output << "] ";
+            } else {
+                fprintf(stderr, "Unsupported comprehension type %d in NODE_COMPREHENSION\n", comp->comptype());
             }
         }
         break;
