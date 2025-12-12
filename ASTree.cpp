@@ -1491,6 +1491,23 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                 }
             }
             break;
+        case Pyc::LIST_TO_TUPLE:
+            {
+                if (stack.top().type() != ASTNode::NODE_LIST){
+                    fprintf(stderr, "Unexpected argument type %i\n", stack.top().type());
+                    break;
+                }
+
+                PycRef<ASTList> list = stack.top().cast<ASTList>();
+                stack.pop();
+                ASTTuple::value_t values;
+                for (PycRef<ASTNode> val : list->values())
+                {
+                    values.push_back(val);
+                }
+                stack.push(new ASTTuple(values));
+            }
+            break;
         case Pyc::LOAD_ATTR_A:
             {
                 PycRef<ASTNode> name = stack.top();
