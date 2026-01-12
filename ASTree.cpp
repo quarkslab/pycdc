@@ -1535,6 +1535,42 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                 stack.push(new ASTTuple(values));
             }
             break;
+        case Pyc::DICT_UPDATE_A:
+        case Pyc::DICT_MERGE_A:
+            {
+                PycRef<ASTNode> rhs = stack.top();
+                stack.pop();
+                PycRef<ASTMap> map = stack.top().cast<ASTMap>();
+
+                switch (rhs.type()){
+                case ASTNode::NODE_MAP:
+                case ASTNode::NODE_NAME:
+                case ASTNode::NODE_CALL:
+                case ASTNode::NODE_SUBSCR:
+                case ASTNode::NODE_BINARY:
+                    map->add_unpacked_value(rhs);
+                    break;
+                case ASTNode::NODE_CONST_MAP:{
+                    PycRef<ASTConstMap> const_map = rhs.cast<ASTConstMap>();
+                    PycTuple::value_t keys = const_map->keys().cast<ASTObject>()->object().cast<PycTuple>()->values();
+                    ASTConstMap::values_t values = const_map->values();
+
+                    for (const auto &key : keys)
+                    {
+                        // Values are pushed onto the stack in reverse order.
+                        PycRef<ASTNode> value = values.back();
+                        values.pop_back();
+
+                        map->add(new ASTObject(key), value);
+                    }
+                    }
+                    break;
+                default:
+                    fprintf(stderr, "Unsupported argument %i found for DICT_MERGE\n", rhs.type());
+                    break;
+                }
+            }
+            break;
         case Pyc::LOAD_ATTR_A:
             {
                 PycRef<ASTNode> name = stack.top();
@@ -2675,47 +2711,119 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                 int has_kwmap = operand & 1;
                 ASTCall::kwparam_t kwparamList;
                 ASTCall::pparam_t pparamList;
+                ASTCall *call = new ASTCall();
 
                 // callable, iterable object & kwmap object (if present)
 
                 if (has_kwmap) {
-                    PycRef<ASTNode> object_or_map = stack.top();
-                    if (object_or_map.type() == ASTNode::NODE_KW_NAMES_MAP) {
+                    PycRef<ASTNode> kwmap_stack = stack.top();
+                    switch (kwmap_stack.type()){
+                    case ASTNode::NODE_KW_NAMES_MAP:
+                    case ASTNode::NODE_MAP:{
                         stack.pop();
-                        PycRef<ASTKwNamesMap> kwparams_map = object_or_map.cast<ASTKwNamesMap>();
-                        for (ASTKwNamesMap::map_t::const_iterator it = kwparams_map->values().begin(); it != kwparams_map->values().end(); it++) {
-                            kwparamList.push_front(std::make_pair(it->first, it->second));
+                        PycRef<ASTMap> kwmap = kwmap_stack.cast<ASTMap>();
+                        for (ASTMap::map_t::const_iterator it = kwmap->values().begin(); it != kwmap->values().end(); it++)
+                        {
+                            if (kwmap->is_unpacked(*it))
+                            {
+                                kwparamList.push_back(call->genKwparamUnpacked(it->second));
+                            }
+                            else
+                            {
+                                kwparamList.push_back(std::make_pair(it->first, it->second));
+                            }
                         }
+                        break;
                     }
-                    else {
-                        fprintf(stderr, "Unexpected object type %i\n", object_or_map.type());
+                    case ASTNode::NODE_CONST_MAP:{
+                        stack.pop();
+                        PycRef<ASTConstMap> const_map = kwmap_stack.cast<ASTConstMap>();
+                        PycTuple::value_t keys = const_map->keys().cast<ASTObject>()->object().cast<PycTuple>()->values();
+                        ASTConstMap::values_t values = const_map->values();
+
+                        for (const auto &key : keys)
+                        {
+                            // Values are pushed onto the stack in reverse order.
+                            PycRef<ASTNode> value = values.back();
+                            values.pop_back();
+
+                            kwparamList.push_back(std::make_pair(new ASTObject(key), value));
+                        }
+                        break;
+                    }
+                    case ASTNode::NODE_OBJECT:{
+                        PycRef<PycObject> obj = kwmap_stack.cast<ASTObject>()->object();
+                        if (obj.type() == PycObject::TYPE_DICT){
+                            for (const auto &it : obj.cast<PycDict>()->values())
+                            {
+                                kwparamList.push_back(std::make_pair(new ASTObject(std::get<0>(it)), new ASTObject(std::get<1>(it))));
+                            }
+                        } else  {
+                            fprintf(stderr, "Unsupported node object type %i\n", obj.type());
+                        }
+                        break;
+                    }
+                    default:
+                        fprintf(stderr, "Unexpected object type %i for kwparams in CALL_FUNCTION_EX\n", kwmap_stack.type());
+                        break;
                     }
                 }
 
                 PycRef<ASTNode> iterable = stack.top();
                 stack.pop();
 
-                // Not sure how to combine these two conditions
-                if (iterable.type() == ASTNode::NODE_LIST) {
-                    PycRef<ASTList> list = iterable.cast<ASTList>();
-                    for (PycRef<ASTNode> n: list->values()) {
+                switch (iterable.type()) {
+                case ASTNode::NODE_LIST:
+                    for (PycRef<ASTNode> n : iterable.cast<ASTList>()->values())
+                    {
                         pparamList.push_back(n);
                     }
-                }
-                else if (iterable.type() == ASTNode::NODE_TUPLE) {
-                    PycRef<ASTTuple> tuple = iterable.cast<ASTTuple>();
-                    for (PycRef<ASTNode> n: tuple->values()) {
+                    break;
+                case ASTNode::NODE_TUPLE:
+                    for (PycRef<ASTNode> n : iterable.cast<ASTTuple>()->values())
+                    {
                         pparamList.push_back(n);
                     }
+                    break;
+                case ASTNode::NODE_SET:
+                    for (PycRef<ASTNode> n : iterable.cast<ASTSet>()->values())
+                    {
+                        pparamList.push_back(n);
+                    }
+                    break;
+                case ASTNode::NODE_OBJECT:
+                    switch (iterable.cast<ASTObject>()->object().type())
+                    {
+                    case PycObject::TYPE_LIST:
+                    case PycObject::TYPE_SET:
+                    case PycObject::TYPE_TUPLE:
+                    case PycObject::TYPE_SMALL_TUPLE:
+                        for (const auto &it : iterable.cast<ASTObject>()->object().cast<PycSimpleSequence>()->values())
+                        {
+                            pparamList.push_back(new ASTObject(it));
+                        }
+                        break;
+                    default:
+                        fprintf(stderr, "Unsupported node object type %i\n", iterable.cast<ASTObject>()->object().type());
+                        break;
+                    }
+                    break;
+                case ASTNode::NODE_SUBSCR:
+                case ASTNode::NODE_BINARY:
+                case ASTNode::NODE_NAME:
+                    pparamList.push_back(iterable);
+                    break;
+                default:
+                    fprintf(stderr, "Unsupported param iterable type %i in CALL_FUNC_EX\n", iterable.type());
+                    break;
                 }
-                else {
-                    fprintf(stderr, "Unsupported iterable type %i\n", iterable.type());
-                }
-
                 PycRef<ASTNode> func = stack.top();
                 stack.pop();
-                
-                stack.push(new ASTCall(func, pparamList, kwparamList));
+
+                call->setFunc(func);
+                call->setKwparams(kwparamList);
+                call->setPparams(pparamList);
+                stack.push(call);
             }
             break;
         default:
@@ -2963,7 +3071,9 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
             for (const auto& param : call->kwparams()) {
                 if (!first)
                     pyc_output << ", ";
-                if (param.first.type() == ASTNode::NODE_NAME) {
+                if (call->isKwparamUnpacked(param)){
+                    pyc_output << "**";
+                } else if (param.first.type() == ASTNode::NODE_NAME) {
                     pyc_output << param.first.cast<ASTName>()->name()->value() << " = ";
                 } else {
                     PycRef<PycString> str_name = param.first.cast<ASTObject>()->object().cast<PycString>();
@@ -3119,14 +3229,19 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
             pyc_output << "{";
             bool first = true;
             cur_indent++;
-            for (const auto& val : node.cast<ASTMap>()->values()) {
+            PycRef<ASTMap> map = node.cast<ASTMap>();
+            for (const auto& val : map->values()) {
                 if (first)
                     pyc_output << "\n";
                 else
                     pyc_output << ",\n";
                 start_line(cur_indent, pyc_output);
-                print_src(val.first, mod, pyc_output);
-                pyc_output << ": ";
+                if (map->is_unpacked(val)){
+                    pyc_output << "**";
+                } else {
+                    print_src(val.first, mod, pyc_output);
+                    pyc_output << ": ";
+                }
                 print_src(val.second, mod, pyc_output);
                 first = false;
             }
