@@ -18,7 +18,7 @@ public:
         NODE_COMPREHENSION, NODE_LOADBUILDCLASS, NODE_AWAITABLE,
         NODE_FORMATTEDVALUE, NODE_JOINEDSTR, NODE_CONST_MAP,
         NODE_ANNOTATED_VAR, NODE_CHAINSTORE, NODE_TERNARY,
-        NODE_KW_NAMES_MAP, NODE_CALL_INTRINSIC_1, NODE_CALL_INTRINSIC_2,
+        NODE_KW_NAMES_MAP, NODE_CALL_INTRINSIC_1, NODE_CALL_INTRINSIC_2, NODE_UNPACKED_TUPLE,
 
         // Empty node types
         NODE_LOCALS,
@@ -355,6 +355,7 @@ public:
     ASTTuple(value_t values)
         : ASTNode(NODE_TUPLE), m_values(std::move(values)),
           m_requireParens(true) { }
+    ASTTuple(enum ASTNode::Type subtype, value_t values, bool requireParens) : ASTNode(subtype), m_values(std::move(values)), m_requireParens(requireParens) {}
 
     const value_t& values() const { return m_values; }
     void add(PycRef<ASTNode> name) { m_values.emplace_back(std::move(name)); }
@@ -362,11 +363,39 @@ public:
     void setRequireParens(bool require) { m_requireParens = require; }
     bool requireParens() const { return m_requireParens; }
 
-private:
+protected:
     value_t m_values;
     bool m_requireParens;
 };
 
+class ASTUnpackedTuple : public ASTTuple {
+public:
+    ASTUnpackedTuple(u_int8_t before, u_int8_t after) : ASTTuple(NODE_UNPACKED_TUPLE, value_t(), true), m_before(std::move(before)), m_after(std::move(after)){}
+
+    void add(PycRef<ASTNode> value){
+        if (m_before > 0){
+            m_before--;
+        } else if (!m_unpackedValueAdded){
+            m_unpackedValueAdded = true;
+            value.setUnpacked(true);
+        } else if (m_after > 0){
+            m_after--;
+        } else{
+            fputs("Cannot add new value to unpacked tuple!\n", stderr);
+            return;
+        }
+        setRequireParens(false);
+        m_values.emplace_back(std::move(value));
+    }
+    bool isFull() { return m_unpackedValueAdded and (m_values.size() > (m_before + m_after)); }
+    u_int8_t unpackedBefore() { return m_before; }
+    u_int8_t unpackedAfter() { return m_after; }
+
+private:
+    u_int8_t m_before; 
+    bool m_unpackedValueAdded = false;
+    u_int8_t m_after;
+};
 
 class ASTList : public ASTNode {
 public:

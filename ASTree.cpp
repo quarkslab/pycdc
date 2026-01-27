@@ -2308,12 +2308,38 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                     PycRef<ASTNode> name = new ASTName(code->getName(operand));
 
                     PycRef<ASTNode> tup = stack.top();
-                    if (tup.type() == ASTNode::NODE_TUPLE)
+                    switch (tup.type()){
+                    case ASTNode::Type::NODE_TUPLE:
                         tup.cast<ASTTuple>()->add(name);
-                    else
-                        fputs("Something TERRIBLE happened!\n", stderr);
+                        break;
+                    case ASTNode::Type::NODE_UNPACKED_TUPLE:
+                        tup.cast<ASTUnpackedTuple>()->add(name);
+                        break;
+                    default:
+                        fprintf(stderr, "Unsupported iterable type %i\n", tup->type());
+                        break;
+                    }
+                    unpack--;
 
-                    if (--unpack <= 0) {
+                    while (unpack > 0 
+                        and tup->type() == ASTNode::Type::NODE_UNPACKED_TUPLE 
+                        and tup.cast<ASTUnpackedTuple>()->isFull()
+                    )
+                    {
+                        PycRef<ASTNode> val = tup;
+                        stack.pop();
+                        if (stack.top()->type() == ASTNode::Type::NODE_UNPACKED_TUPLE 
+                            and not stack.top().cast<ASTUnpackedTuple>()->isFull())
+                        {
+                            stack.top().cast<ASTUnpackedTuple>()->add(tup);
+                            tup = stack.top();
+                            unpack--;
+                        } else {
+                            stack.push(tup);
+                            break;
+                        }
+                    }
+                    if (unpack <= 0){
                         stack.pop();
                         PycRef<ASTNode> seq = stack.top();
                         stack.pop();
@@ -2551,6 +2577,15 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                     }
                 }
             }
+            break;
+        case Pyc::UNPACK_EX_A:
+            {
+                uint8_t before = operand & 0xFF;
+                uint8_t after = (operand >> 8) & 0xFF;
+
+                stack.push(new ASTUnpackedTuple(before, after));
+                unpack += (after + before + 1);
+                }
             break;
         case Pyc::YIELD_FROM:
             {
@@ -3667,10 +3702,13 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
         }
         break;
     case ASTNode::NODE_TUPLE:
+    case ASTNode::NODE_UNPACKED_TUPLE:
         {
             PycRef<ASTTuple> tuple = node.cast<ASTTuple>();
             ASTTuple::value_t values = tuple->values();
-            if (tuple->requireParens())
+            if (tuple.isUnpacked())
+                pyc_output << "*(";
+            else if (tuple->requireParens())
                 pyc_output << "(";
             bool first = true;
             for (const auto& val : values) {
@@ -3681,7 +3719,7 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
             }
             if (values.size() == 1)
                 pyc_output << ',';
-            if (tuple->requireParens())
+            if (tuple->requireParens() or tuple.isUnpacked())
                 pyc_output << ')';
         }
         break;
