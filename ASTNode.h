@@ -18,7 +18,7 @@ public:
         NODE_COMPREHENSION, NODE_LOADBUILDCLASS, NODE_AWAITABLE,
         NODE_FORMATTEDVALUE, NODE_JOINEDSTR, NODE_CONST_MAP,
         NODE_ANNOTATED_VAR, NODE_CHAINSTORE, NODE_TERNARY,
-        NODE_KW_NAMES_MAP, NODE_CALL_INTRINSIC_1, NODE_CALL_INTRINSIC_2, NODE_UNPACKED_TUPLE,
+        NODE_KW_NAMES_MAP, NODE_CALL_INTRINSIC_1, NODE_CALL_INTRINSIC_2, NODE_UNPACKED_TUPLE, NODE_ASSERT,
 
         // Empty node types
         NODE_LOCALS,
@@ -552,6 +552,19 @@ private:
     param_t m_params;
 };
 
+class ASTAssert : public ASTNode {
+public:
+    ASTAssert() : ASTNode(NODE_ASSERT) {}
+
+    const PycRef<ASTNode> cond() const { return m_cond; }
+    const PycRef<ASTNode> msg() const { return m_msg; }
+    void setCond(PycRef<ASTNode> cond) { m_cond = std::move(cond); }
+    void setMsg(PycRef<ASTNode> msg) { m_msg = std::move(msg); }
+
+private : 
+    PycRef<ASTNode> m_cond;
+    PycRef<ASTNode> m_msg;
+};
 
 class ASTExec : public ASTNode {
 public:

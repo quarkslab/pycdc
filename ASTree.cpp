@@ -522,7 +522,16 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                     stack.pop();
                 }
 
-                stack.push(new ASTCall(func, pparamList, kwparamList));
+                if (func->type() == ASTNode::NODE_ASSERT){
+                    if (pparamList.size() > 1){
+                        fprintf(stderr, "Assert can only have one message\n");
+                    } else {
+                        func.cast<ASTAssert>()->setMsg(pparamList.front());
+                        stack.push(func);
+                    }
+                } else {
+                    stack.push(new ASTCall(func, pparamList, kwparamList));
+                }
             }
             break;
         case Pyc::CALL_FUNCTION_VAR_A:
@@ -1571,6 +1580,34 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                 }
             }
             break;
+        case Pyc::LOAD_ASSERTION_ERROR:
+            {
+                PycRef<ASTNode> assertion = new ASTAssert();
+                switch (curblock->blktype()){
+                case ASTBlock::BLK_IF:
+                case ASTBlock::BLK_ELIF:{
+                    if (stack_hist.size())
+                    {
+                        stack = stack_hist.top();
+                        stack_hist.pop();
+                    }
+
+                    PycRef<ASTCondBlock> prev = curblock.cast<ASTCondBlock>();
+                    blocks.pop();
+                    curblock = blocks.top();
+                    assertion.cast<ASTAssert>()->setCond(prev->cond());
+                    }
+                    break;
+                case ASTBlock::BLK_MAIN:
+                    assertion.cast<ASTAssert>()->setCond(new ASTObject(new PycObject(PycObject::TYPE_FALSE)));
+                    break;
+                default:
+                    fprintf(stderr, "Unsupported block type %i found for LOAD_ASSERTION_ERROR\n", curblock->blktype());
+                    break;
+                }
+                stack.push(assertion);
+            }
+            break;
         case Pyc::LOAD_ATTR_A:
             {
                 PycRef<ASTNode> name = stack.top();
@@ -1908,6 +1945,12 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
             break;
         case Pyc::RAISE_VARARGS_A:
             {
+                if (operand == 1 and stack.top()->type() == ASTNode::NODE_ASSERT){
+                    curblock->append(stack.top());
+                    stack.pop();
+                    break;
+                }
+
                 ASTRaise::param_t paramList;
                 for (int i = 0; i < operand; i++) {
                     paramList.push_front(stack.top());
@@ -3413,7 +3456,21 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
             }
         }
         break;
-    case ASTNode::NODE_RETURN:
+    case ASTNode::NODE_ASSERT:
+        {
+            PycRef<ASTAssert> assertion = node.cast<ASTAssert>();
+            pyc_output << "assert ";
+            if (assertion->cond()){
+                print_src(assertion->cond(), mod, pyc_output);
+                if (assertion->msg()){
+                    pyc_output << ", ";
+                    print_src(assertion->msg(), mod, pyc_output);
+                }
+            }
+            
+        }
+        break;
+        case ASTNode::NODE_RETURN:
         {
             PycRef<ASTReturn> ret = node.cast<ASTReturn>();
             PycRef<ASTNode> value = ret->value();
