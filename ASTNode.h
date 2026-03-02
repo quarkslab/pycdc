@@ -680,6 +680,30 @@ private:
     int m_except;
 };
 
+class ASTExceptBlock : public ASTBlock
+{
+public:
+    ASTExceptBlock(int end)
+        : ASTBlock(ASTBlock::BLK_EXCEPT, end) {}
+    ASTExceptBlock(int end, PycRef<ASTNode> expr)
+        : ASTBlock(ASTBlock::BLK_EXCEPT, end), m_expr(std::move(expr)) {}
+
+    PycRef<ASTNode> expr() const { return m_expr; }
+    PycRef<ASTNode> var() const { return m_var; }
+
+    void setExpr(PycRef<ASTNode> expr)
+    {
+        m_expr = std::move(expr);
+        init();
+    }
+    void setVar(PycRef<ASTNode> var) { m_var = std::move(var); }
+
+private:
+    PycRef<ASTNode> m_expr;
+    PycRef<ASTNode> m_var; // optional value
+};
+
+
 class ASTWithBlock : public ASTBlock {
 public:
     ASTWithBlock(int end)
