@@ -674,6 +674,7 @@ public:
     int except() const { return m_except; }
 
     void setExcept(int except) { m_except = except; }
+    void setFinally(int finally) { m_finally = finally; }
 
 private:
     int m_finally;
