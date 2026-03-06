@@ -1570,7 +1570,8 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                 PycRef<ASTList> lhs = stack.top().cast<ASTList>();
                 stack.pop();
 
-                if (rhs.type() == ASTNode::NODE_OBJECT) {
+                switch(rhs.type()){
+                case ASTNode::NODE_OBJECT: {
 
                     // I've only ever seen this be a SMALL_TUPLE, but let's be careful...
                     PycRef<PycObject> obj = rhs.cast<ASTObject>()->object();
@@ -1585,8 +1586,12 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
                     }
 
                     stack.push(new ASTList(result));
-                }
-                else if (rhs.type() == ASTNode::NODE_NAME) {
+                    }
+                    break;
+                case ASTNode::NODE_NAME:
+                case ASTNode::NODE_CALL:
+                case ASTNode::NODE_BINARY:
+                case ASTNode::NODE_SUBSCR: {
                     ASTList::value_t result = lhs->values();
                     
                     // rhs is a variable, so to extend the list
@@ -1596,9 +1601,11 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
 
                     result.push_back(unpacked_ref);
                     stack.push(new ASTList(result));
-                }
-                else {
+                    }
+                    break;
+                default:
                     fprintf(stderr, "Unsupported argument %i found for LIST_EXTEND\n", rhs.type());
+                    break;
                 }
             }
             break;
