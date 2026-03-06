@@ -3244,6 +3244,9 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
     }
     node_seen.insert((ASTNode *)node);
 
+    if (node.isUnpacked())
+        pyc_output << "*";
+
     switch (node->type()) {
     case ASTNode::NODE_BINARY:
     case ASTNode::NODE_COMPARE:
@@ -3356,10 +3359,6 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
         break;
     case ASTNode::NODE_LIST:
         {
-            if (node.isUnpacked()) {
-                pyc_output << "*";
-            }
-
             pyc_output << "[";
             bool first = true;
             cur_indent++;
@@ -3473,9 +3472,6 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
         }
         break;
     case ASTNode::NODE_NAME:
-        if (node.isUnpacked()) {
-            pyc_output << "*";
-        }
         pyc_output << node.cast<ASTName>()->name()->value();
         break;
     case ASTNode::NODE_NODELIST:
@@ -3896,9 +3892,7 @@ void print_src(PycRef<ASTNode> node, PycModule* mod, std::ostream& pyc_output)
         {
             PycRef<ASTTuple> tuple = node.cast<ASTTuple>();
             ASTTuple::value_t values = tuple->values();
-            if (tuple.isUnpacked())
-                pyc_output << "*(";
-            else if (tuple->requireParens())
+            if (tuple->requireParens() or tuple.isUnpacked())
                 pyc_output << "(";
             bool first = true;
             for (const auto& val : values) {
