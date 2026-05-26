@@ -1808,6 +1808,7 @@ PycRef<ASTNode> BuildFromCode(PycRef<PycCode> code, PycModule* mod)
         case Pyc::NOP:
             break;
         case Pyc::POP_EXCEPT:
+        case Pyc::RERAISE:
         case Pyc::RERAISE_A:
         case Pyc::POP_BLOCK:
             {
